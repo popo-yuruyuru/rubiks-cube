@@ -1,0 +1,128 @@
+import * as THREE from "three";
+import { RubiksCube } from "./cube";
+import { Controls } from "./controls";
+
+const canvas = document.getElementById("scene") as HTMLCanvasElement;
+const movesEl = document.getElementById("moves") as HTMLSpanElement;
+const statusEl = document.getElementById("status") as HTMLDivElement;
+const shuffleBtn = document.getElementById("shuffle") as HTMLButtonElement;
+const resetBtn = document.getElementById("reset") as HTMLButtonElement;
+
+// ---- renderer / scene -------------------------------------------------------
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const scene = new THREE.Scene();
+
+const CAMERA_DIR = new THREE.Vector3(0.85, 0.85, 1.15).normalize();
+const CAMERA_TARGET = new THREE.Vector3(0, 0.35, 0); // raised target -> cube sits lower
+const FOV = 45;
+const CUBE_RADIUS = 2.6; // a touch larger than the cube so it nearly fills the view
+
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 1.05));
+const key = new THREE.DirectionalLight(0xffffff, 1.1);
+key.position.set(5, 8, 6);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x8fb3ff, 0.4);
+fill.position.set(-6, -3, -4);
+scene.add(fill);
+
+const cube = new RubiksCube();
+scene.add(cube.group);
+
+const controls = new Controls(canvas, camera, cube);
+void controls;
+
+// ---- responsive fit ---------------------------------------------------------
+
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+
+  // distance that fits CUBE_RADIUS within the smaller of the two FOV angles
+  const vFov = THREE.MathUtils.degToRad(FOV);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const fitFov = Math.min(vFov, hFov);
+  const distance = CUBE_RADIUS / Math.sin(fitFov / 2);
+
+  camera.position.copy(CAMERA_DIR).multiplyScalar(distance).add(CAMERA_TARGET);
+  camera.lookAt(CAMERA_TARGET);
+  camera.updateProjectionMatrix();
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+// ---- UI ---------------------------------------------------------------------
+
+let moves = 0;
+
+function setMoves(n: number) {
+  moves = n;
+  movesEl.textContent = String(n);
+}
+
+function showStatus(text: string, solved: boolean) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle("solved", solved);
+  statusEl.classList.add("show");
+}
+
+function hideStatus() {
+  statusEl.classList.remove("show");
+}
+
+cube.onTurnComplete = (recorded) => {
+  if (recorded) setMoves(moves + 1);
+  if (cube.isSolved() && moves > 0) showStatus("完成！", true);
+  else hideStatus();
+};
+
+const AXES = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, 1),
+];
+
+shuffleBtn.addEventListener("click", () => {
+  if (cube.isBusy()) return;
+  hideStatus();
+  let lastAxis = -1;
+  for (let i = 0; i < 20; i++) {
+    let a = Math.floor(Math.random() * 3);
+    if (a === lastAxis) a = (a + 1 + Math.floor(Math.random() * 2)) % 3;
+    lastAxis = a;
+    cube.enqueue({
+      axis: AXES[a].clone(),
+      layer: Math.floor(Math.random() * 3) - 1,
+      turns: Math.random() < 0.5 ? 1 : -1,
+      record: false,
+      duration: 110,
+    });
+  }
+  setMoves(0);
+});
+
+resetBtn.addEventListener("click", () => {
+  cube.reset();
+  setMoves(0);
+  hideStatus();
+});
+
+// ---- render loop ------------------------------------------------------------
+
+function tick(now: number) {
+  cube.update(now);
+  const busy = cube.isBusy();
+  shuffleBtn.disabled = busy;
+  resetBtn.disabled = busy;
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+requestAnimationFrame(tick);
