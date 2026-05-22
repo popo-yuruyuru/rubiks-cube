@@ -39,11 +39,11 @@ export class Controls {
   private beginY = 0;
   private anglePerPixel = 0;
 
-  // orbit inertia + view reset
+  // orbit inertia + view snap
   private spinYaw = 0;
   private spinPitch = 0;
   private orbiting = false;
-  private resettingView = false;
+  private viewTarget: THREE.Quaternion | null = null;
 
   // tap / double-tap tracking
   private downTime = 0;
@@ -67,12 +67,12 @@ export class Controls {
   // ---- per-frame: inertia + view-reset animation ----------------------------
 
   update() {
-    if (this.resettingView) {
+    if (this.viewTarget) {
       const q = this.cube.group.quaternion;
-      q.slerp(IDENTITY, 0.2);
-      if (q.angleTo(IDENTITY) < 0.01) {
-        q.copy(IDENTITY);
-        this.resettingView = false;
+      q.slerp(this.viewTarget, 0.2);
+      if (q.angleTo(this.viewTarget) < 0.01) {
+        q.copy(this.viewTarget);
+        this.viewTarget = null;
       }
       return;
     }
@@ -92,7 +92,7 @@ export class Controls {
   private onDown = (e: PointerEvent) => {
     this.canvas.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    this.resettingView = false;
+    this.viewTarget = null;
     this.spinYaw = this.spinPitch = 0;
 
     if (this.pointers.size >= 2) {
@@ -200,7 +200,7 @@ export class Controls {
     const now = performance.now();
     const near = Math.hypot(e.clientX - this.lastTapX, e.clientY - this.lastTapY) < 40;
     if (now - this.lastTapTime < DOUBLE_TAP_MS && near) {
-      this.resettingView = true; // double tap -> snap back to front view
+      this.viewTarget = this.snapTarget(e.clientX, e.clientY);
       this.spinYaw = this.spinPitch = 0;
       this.lastTapTime = 0;
     } else {
@@ -208,6 +208,55 @@ export class Controls {
       this.lastTapX = e.clientX;
       this.lastTapY = e.clientY;
     }
+  }
+
+  /** Corner double-tap -> matching vertex view; elsewhere -> nearest face-on view. */
+  private snapTarget(x: number, y: number): THREE.Quaternion {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const nearLeft = x < w * 0.2;
+    const nearRight = x > w * 0.8;
+    const nearTop = y < h * 0.2;
+    const nearBottom = y > h * 0.8;
+    if ((nearLeft || nearRight) && (nearTop || nearBottom)) {
+      return this.vertexTarget(nearLeft ? -1 : 1, nearTop ? 1 : -1);
+    }
+    return this.faceFrontTarget();
+  }
+
+  private cameraVectors(): { viewDir: THREE.Vector3; up: THREE.Vector3 } {
+    const fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd); // camera -> scene
+    return {
+      viewDir: fwd.multiplyScalar(-1).normalize(), // cube -> camera
+      up: new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion).normalize(),
+    };
+  }
+
+  /** Nearest orientation that puts a whole face flat toward the camera. */
+  private faceFrontTarget(): THREE.Quaternion {
+    const { viewDir, up } = this.cameraVectors();
+    const q = this.cube.group.quaternion;
+    const localFwd = nearestLocalAxis(viewDir, q);
+    const localUp = nearestLocalAxis(up, q, localFwd);
+    return orientationFromAxes(localFwd, viewDir, localUp, up);
+  }
+
+  /** Isometric view looking down the body diagonal of vertex (sx, sy, +z). */
+  private vertexTarget(sx: number, sy: number): THREE.Quaternion {
+    const { viewDir, up } = this.cameraVectors();
+    const diagonal = new THREE.Vector3(sx, sy, 1).normalize();
+    const q1 = new THREE.Quaternion().setFromUnitVectors(diagonal, viewDir);
+
+    // roll around viewDir so the cube's +Y stays upright on screen
+    const yAfter = new THREE.Vector3(0, 1, 0).applyQuaternion(q1);
+    const a = yAfter.addScaledVector(viewDir, -yAfter.dot(viewDir)).normalize();
+    const b = up.clone().addScaledVector(viewDir, -up.dot(viewDir)).normalize();
+    let angle = Math.acos(THREE.MathUtils.clamp(a.dot(b), -1, 1));
+    if (new THREE.Vector3().crossVectors(a, b).dot(viewDir) < 0) angle = -angle;
+    const q2 = new THREE.Quaternion().setFromAxisAngle(viewDir, angle);
+
+    return q2.multiply(q1);
   }
 
   // ---- face turn setup ------------------------------------------------------
@@ -274,10 +323,54 @@ export class Controls {
 
 const WORLD_X = new THREE.Vector3(1, 0, 0);
 const WORLD_Y = new THREE.Vector3(0, 1, 0);
-const IDENTITY = new THREE.Quaternion();
+
+const LOCAL_AXES = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, -1, 0),
+  new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(0, 0, -1),
+];
 
 function clamp(v: number, max: number): number {
   return Math.max(-max, Math.min(max, v));
+}
+
+/** Local signed axis whose current world direction best matches `worldTarget`. */
+function nearestLocalAxis(
+  worldTarget: THREE.Vector3,
+  q: THREE.Quaternion,
+  exclude?: THREE.Vector3,
+): THREE.Vector3 {
+  let best = LOCAL_AXES[0];
+  let bestDot = -Infinity;
+  for (const a of LOCAL_AXES) {
+    if (exclude && Math.abs(a.dot(exclude)) > 0.9) continue;
+    const d = a.clone().applyQuaternion(q).dot(worldTarget);
+    if (d > bestDot) {
+      bestDot = d;
+      best = a;
+    }
+  }
+  return best.clone();
+}
+
+/** Orientation mapping cube-local fwd/up axes onto the given world directions. */
+function orientationFromAxes(
+  localFwd: THREE.Vector3,
+  worldFwd: THREE.Vector3,
+  localUp: THREE.Vector3,
+  worldUp: THREE.Vector3,
+): THREE.Quaternion {
+  const wf = worldFwd.clone().normalize();
+  const wu = worldUp.clone().addScaledVector(wf, -worldUp.dot(wf)).normalize();
+  const wr = new THREE.Vector3().crossVectors(wu, wf);
+  const lr = new THREE.Vector3().crossVectors(localUp, localFwd);
+
+  const W = new THREE.Matrix4().makeBasis(wr, wu, wf);
+  const L = new THREE.Matrix4().makeBasis(lr, localUp, localFwd).transpose();
+  return new THREE.Quaternion().setFromRotationMatrix(W.multiply(L));
 }
 
 function dominantAxis(v: THREE.Vector3): 0 | 1 | 2 {
