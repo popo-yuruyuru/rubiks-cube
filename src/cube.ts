@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FACES, FACE_NAMES, FaceName, faceFromNormal } from "./faces";
 
 /** Sticker colors keyed by the cube face they start on. */
 const COLORS = {
@@ -148,6 +149,30 @@ export class RubiksCube {
 
   isManualActive(): boolean {
     return this.manual !== null;
+  }
+
+  /** Read the current sticker colors as a 3x3 grid per face (cube-local). */
+  getFacelets(): Record<FaceName, number[][]> {
+    const grids = {} as Record<FaceName, number[][]>;
+    for (const name of FACE_NAMES) {
+      grids[name] = [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+      ];
+    }
+    for (const sticker of this.stickers) {
+      const cubie = sticker.parent!;
+      const normal = (sticker.userData.axis as THREE.Vector3)
+        .clone()
+        .applyQuaternion(cubie.quaternion);
+      const face = faceFromNormal(normal);
+      const g = FACES[face];
+      const col = Math.round(cubie.position.dot(g.col)) + 1;
+      const row = Math.round(cubie.position.dot(g.row)) + 1;
+      grids[face][row][col] = sticker.userData.baseColor as number;
+    }
+    return grids;
   }
 
   isSolved(): boolean {

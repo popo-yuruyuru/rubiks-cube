@@ -1,8 +1,11 @@
 import * as THREE from "three";
 import { RubiksCube } from "./cube";
 import { Controls } from "./controls";
+import { CubeNet } from "./net";
 
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
+const stage = document.getElementById("stage") as HTMLElement;
+const netEl = document.getElementById("net") as HTMLElement;
 const movesEl = document.getElementById("moves") as HTMLSpanElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const shuffleBtn = document.getElementById("shuffle") as HTMLButtonElement;
@@ -34,12 +37,14 @@ const cube = new RubiksCube();
 scene.add(cube.group);
 
 const controls = new Controls(canvas, camera, cube);
+const net = new CubeNet(netEl, cube);
 
 // ---- responsive fit ---------------------------------------------------------
 
 function resize() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const w = stage.clientWidth;
+  const h = stage.clientHeight;
+  if (w === 0 || h === 0) return;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
 
@@ -55,6 +60,7 @@ function resize() {
 }
 
 window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(stage);
 resize();
 
 // ---- UI ---------------------------------------------------------------------
@@ -78,6 +84,7 @@ function hideStatus() {
 
 cube.onTurnComplete = (recordedMoves) => {
   if (recordedMoves > 0) setMoves(moves + recordedMoves);
+  net.sync();
   if (cube.isSolved() && moves > 0) showStatus("完成！", true);
   else hideStatus();
 };
@@ -119,6 +126,7 @@ function startResetHold() {
   resetTimer = window.setTimeout(() => {
     cube.reset();
     setMoves(0);
+    net.sync();
     hideStatus();
     cancelResetHold();
   }, RESET_HOLD_MS);

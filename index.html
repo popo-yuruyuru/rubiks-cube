@@ -11,23 +11,29 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <canvas id="scene"></canvas>
+    <div id="app">
+      <section class="stage" id="stage">
+        <canvas id="scene"></canvas>
 
-    <header id="hud">
-      <div class="counter" id="counter">
-        <span class="counter-label">手数</span>
-        <span class="counter-value" id="moves">0</span>
-      </div>
-      <div class="status" id="status"></div>
-    </header>
+        <header id="hud">
+          <div class="counter" id="counter">
+            <span class="counter-label">手数</span>
+            <span class="counter-value" id="moves">0</span>
+          </div>
+          <div class="status" id="status"></div>
+        </header>
 
-    <footer id="controls">
-      <button class="btn" id="shuffle" type="button">シャッフル</button>
-      <button class="btn hold-btn" id="reset" type="button">
-        <span class="hold-fill" id="reset-fill"></span>
-        <span class="hold-label">長押しでリセット</span>
-      </button>
-    </footer>
+        <footer id="controls">
+          <button class="btn" id="shuffle" type="button">シャッフル</button>
+          <button class="btn hold-btn" id="reset" type="button">
+            <span class="hold-fill" id="reset-fill"></span>
+            <span class="hold-label">長押しでリセット</span>
+          </button>
+        </footer>
+      </section>
+
+      <section class="net" id="net" aria-label="展開図"></section>
+    </div>
 
     <div id="tutorial" hidden>
       <div class="tut-card">
@@ -37,6 +43,7 @@
           <li><b>余白をドラッグ</b> — キューブ全体を回して視点変更</li>
           <li><b>2本指</b> — でも視点変更できます</li>
           <li><b>ダブルタップ</b> — 最寄りの面の正面へ（画面の隅なら頂点ビューへ）</li>
+          <li><b>展開図</b> — 行/列をスワイプしても面を回せます</li>
         </ul>
         <button class="btn tut-close" id="tut-close" type="button">はじめる</button>
       </div>
