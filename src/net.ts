@@ -132,7 +132,7 @@ export class CubeNet {
       .addScaledVector(g.row, start.row - 1);
     const layer = Math.round(cellPos.getComponent(dominantAxis(axis)));
 
-    this.cube.enqueue({ axis, layer, turns: 1, record: true });
+    this.cube.enqueue({ axis, layer, turns: 1, kind: "user" });
     this.highlight(start, horizontal);
   }
 

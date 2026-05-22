@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RubiksCube } from "./cube";
+import { RubiksCube, TurnAction } from "./cube";
 import { Controls } from "./controls";
 import { CubeNet } from "./net";
 
@@ -10,6 +10,10 @@ const movesEl = document.getElementById("moves") as HTMLSpanElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const shuffleBtn = document.getElementById("shuffle") as HTMLButtonElement;
 const resetBtn = document.getElementById("reset") as HTMLButtonElement;
+const undoBtn = document.getElementById("undo") as HTMLButtonElement;
+const redoBtn = document.getElementById("redo") as HTMLButtonElement;
+const undoEdge = document.getElementById("undo-edge") as HTMLElement;
+const redoEdge = document.getElementById("redo-edge") as HTMLElement;
 
 // ---- renderer / scene -------------------------------------------------------
 
@@ -82,12 +86,72 @@ function hideStatus() {
   statusEl.classList.remove("show");
 }
 
-cube.onTurnComplete = (recordedMoves) => {
-  if (recordedMoves > 0) setMoves(moves + recordedMoves);
+// ---- history / undo / redo --------------------------------------------------
+
+const history: TurnAction[] = [];
+const redoStack: TurnAction[] = [];
+
+function refreshHistoryUI() {
+  const canUndo = history.length > 0 && !busyForUser();
+  const canRedo = redoStack.length > 0 && !busyForUser();
+  undoBtn.disabled = !canUndo;
+  redoBtn.disabled = !canRedo;
+  undoEdge.classList.toggle("show", history.length > 0);
+  redoEdge.classList.toggle("show", redoStack.length > 0);
+}
+
+function busyForUser(): boolean {
+  return cube.isBusy() || cube.isManualActive();
+}
+
+cube.onTurnComplete = (action) => {
+  if (action.turns !== 0) {
+    if (action.kind === "user") {
+      setMoves(moves + Math.abs(action.turns));
+      history.push(action);
+      redoStack.length = 0;
+    } else if (action.kind === "redo") {
+      setMoves(moves + Math.abs(action.turns));
+      history.push({ ...action, kind: "user" });
+    } else if (action.kind === "undo") {
+      setMoves(Math.max(0, moves - Math.abs(action.turns)));
+      redoStack.push({ ...action, axis: action.axis.clone(), turns: -action.turns, kind: "user" });
+    }
+  }
   net.sync();
+  refreshHistoryUI();
   if (cube.isSolved() && moves > 0) showStatus("完成！", true);
   else hideStatus();
 };
+
+function undo() {
+  if (busyForUser() || history.length === 0) return;
+  const last = history.pop()!;
+  cube.enqueue({
+    axis: last.axis.clone(),
+    layer: last.layer,
+    turns: -last.turns,
+    kind: "undo",
+    duration: 200,
+  });
+  refreshHistoryUI();
+}
+
+function redo() {
+  if (busyForUser() || redoStack.length === 0) return;
+  const next = redoStack.pop()!;
+  cube.enqueue({
+    axis: next.axis.clone(),
+    layer: next.layer,
+    turns: next.turns,
+    kind: "redo",
+    duration: 200,
+  });
+  refreshHistoryUI();
+}
+
+undoBtn.addEventListener("click", undo);
+redoBtn.addEventListener("click", redo);
 
 const AXES = [
   new THREE.Vector3(1, 0, 0),
@@ -96,8 +160,10 @@ const AXES = [
 ];
 
 shuffleBtn.addEventListener("click", () => {
-  if (cube.isBusy()) return;
+  if (busyForUser()) return;
   hideStatus();
+  history.length = 0;
+  redoStack.length = 0;
   let lastAxis = -1;
   for (let i = 0; i < 20; i++) {
     let a = Math.floor(Math.random() * 3);
@@ -107,11 +173,12 @@ shuffleBtn.addEventListener("click", () => {
       axis: AXES[a].clone(),
       layer: Math.floor(Math.random() * 3) - 1,
       turns: Math.random() < 0.5 ? 1 : -1,
-      record: false,
+      kind: "shuffle",
       duration: 110,
     });
   }
   setMoves(0);
+  refreshHistoryUI();
 });
 
 // reset requires a 1s hold (progress bar fills) to avoid accidental taps
@@ -126,7 +193,10 @@ function startResetHold() {
   resetTimer = window.setTimeout(() => {
     cube.reset();
     setMoves(0);
+    history.length = 0;
+    redoStack.length = 0;
     net.sync();
+    refreshHistoryUI();
     hideStatus();
     cancelResetHold();
   }, RESET_HOLD_MS);
@@ -148,14 +218,82 @@ resetBtn.addEventListener("pointercancel", cancelResetHold);
 function tick(now: number) {
   controls.update();
   cube.update(now);
-  const busy = cube.isBusy() || cube.isManualActive();
+  const busy = busyForUser();
   shuffleBtn.disabled = busy;
   resetBtn.disabled = busy;
+  undoBtn.disabled = busy || history.length === 0;
+  redoBtn.disabled = busy || redoStack.length === 0;
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
 
 requestAnimationFrame(tick);
+
+// ---- edge swipe gestures: left=undo, right=redo -----------------------------
+
+const EDGE_WIDTH = 22; // px: pointer must start within this band from the edge
+const EDGE_TRIGGER = 56; // px: inward swipe length that fires the gesture
+
+interface EdgeGesture {
+  side: "left" | "right";
+  startX: number;
+  startY: number;
+  fired: boolean;
+}
+let edgeGesture: EdgeGesture | null = null;
+
+window.addEventListener(
+  "pointerdown",
+  (e) => {
+    // never steal button or net taps
+    const t = e.target;
+    if (t instanceof HTMLElement && t.closest("button, .net")) return;
+    if (e.clientX <= EDGE_WIDTH) edgeGesture = { side: "left", startX: e.clientX, startY: e.clientY, fired: false };
+    else if (e.clientX >= window.innerWidth - EDGE_WIDTH)
+      edgeGesture = { side: "right", startX: e.clientX, startY: e.clientY, fired: false };
+    else return;
+    e.stopPropagation();
+  },
+  true, // capture: beat the canvas listeners
+);
+
+window.addEventListener(
+  "pointermove",
+  (e) => {
+    if (!edgeGesture || edgeGesture.fired) return;
+    const dx = e.clientX - edgeGesture.startX;
+    const dy = e.clientY - edgeGesture.startY;
+    if (Math.abs(dy) > Math.abs(dx) + 8) {
+      edgeGesture = null; // looks vertical, let the user orbit on the next gesture
+      return;
+    }
+    if (edgeGesture.side === "left" && dx > EDGE_TRIGGER) {
+      edgeGesture.fired = true;
+      undo();
+    } else if (edgeGesture.side === "right" && dx < -EDGE_TRIGGER) {
+      edgeGesture.fired = true;
+      redo();
+    }
+  },
+  true,
+);
+
+window.addEventListener(
+  "pointerup",
+  () => {
+    edgeGesture = null;
+  },
+  true,
+);
+window.addEventListener(
+  "pointercancel",
+  () => {
+    edgeGesture = null;
+  },
+  true,
+);
+
+refreshHistoryUI();
 
 // ---- first-run tutorial -----------------------------------------------------
 

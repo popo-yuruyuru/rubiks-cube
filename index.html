@@ -24,12 +24,17 @@
         </header>
 
         <footer id="controls">
+          <button class="icon-btn" id="undo" type="button" aria-label="アンドゥ">↶</button>
           <button class="btn" id="shuffle" type="button">シャッフル</button>
           <button class="btn hold-btn" id="reset" type="button">
             <span class="hold-fill" id="reset-fill"></span>
             <span class="hold-label">長押しでリセット</span>
           </button>
+          <button class="icon-btn" id="redo" type="button" aria-label="リドゥ">↷</button>
         </footer>
+
+        <div class="edge-hint left" id="undo-edge" aria-hidden="true"></div>
+        <div class="edge-hint right" id="redo-edge" aria-hidden="true"></div>
       </section>
 
       <section class="net" id="net" aria-label="展開図"></section>
@@ -44,6 +49,7 @@
           <li><b>2本指</b> — でも視点変更できます</li>
           <li><b>ダブルタップ</b> — 最寄りの面の正面へ（画面の隅なら頂点ビューへ）</li>
           <li><b>展開図</b> — 行/列をスワイプしても面を回せます</li>
+          <li><b>画面の左/右端からスワイプ</b> — アンドゥ/リドゥ</li>
         </ul>
         <button class="btn tut-close" id="tut-close" type="button">はじめる</button>
       </div>

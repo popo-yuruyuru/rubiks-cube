@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { RubiksCube } from "./cube";
 
-const SWIPE_THRESHOLD = 22; // px before a drag on a cubie commits to a face turn
+const PREVIEW_THRESHOLD = 6; // px before the candidate-layer hint starts following the finger
+const SWIPE_THRESHOLD = 22; // px before a drag on a cubie commits (locks) to a face turn
 const TAP_MOVE = 10; // px — movement under this counts as a tap, not a drag
 const DOUBLE_TAP_MS = 300;
 const ORBIT_SPEED = 0.011; // rad per px
@@ -137,9 +138,24 @@ export class Controls {
     if (this.mode === "deciding" && this.pending) {
       const totalX = e.clientX - this.downX;
       const totalY = e.clientY - this.downY;
-      if (Math.hypot(totalX, totalY) >= SWIPE_THRESHOLD) {
-        this.beginManualTurn(e, totalX, totalY);
+      const dist = Math.hypot(totalX, totalY);
+      if (dist < PREVIEW_THRESHOLD) return; // still just a finger rest
+
+      const swipeDir = this.computeLocalSwipeDir(totalX, totalY, this.pending.normal);
+      if (!swipeDir) return;
+
+      // which cubie is the finger currently over (re-raycast)? falls back to the
+      // initial touch if the pointer drifted off the cube or onto another face.
+      const cur = this.raycast(e);
+      const cubie =
+        cur && cur.normal.dot(this.pending.normal) > 0.9 ? cur.cubie : this.pending.cubie;
+
+      if (dist < SWIPE_THRESHOLD) {
+        this.cube.preview(cubie, this.pending.normal, swipeDir);
+        return;
       }
+
+      this.lockManualTurn(e, cubie, swipeDir);
       return;
     }
 
@@ -261,31 +277,43 @@ export class Controls {
 
   // ---- face turn setup ------------------------------------------------------
 
-  private beginManualTurn(e: PointerEvent, screenDX: number, screenDY: number) {
-    const hit = this.pending!;
+  /** Screen-space swipe vector -> in-plane local axis on the touched face. */
+  private computeLocalSwipeDir(
+    dx: number,
+    dy: number,
+    normal: THREE.Vector3,
+  ): THREE.Vector3 | null {
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
-    const worldSwipe = right
-      .multiplyScalar(screenDX)
-      .add(up.multiplyScalar(-screenDY))
-      .normalize();
+    const worldSwipe = right.multiplyScalar(dx).add(up.multiplyScalar(-dy));
+    if (worldSwipe.lengthSq() < 1e-4) return null;
+    worldSwipe.normalize();
 
-    const invGroup = this.cube.group.quaternion.clone().invert();
-    const localSwipe = worldSwipe.clone().applyQuaternion(invGroup);
-    localSwipe.addScaledVector(hit.normal, -localSwipe.dot(hit.normal));
-    if (localSwipe.lengthSq() < 1e-6) return;
+    const localSwipe = worldSwipe.applyQuaternion(
+      this.cube.group.quaternion.clone().invert(),
+    );
+    localSwipe.addScaledVector(normal, -localSwipe.dot(normal));
+    if (localSwipe.lengthSq() < 1e-6) return null;
     snapToAxis(localSwipe);
+    return localSwipe;
+  }
 
-    const axis = new THREE.Vector3().crossVectors(hit.normal, localSwipe);
+  private lockManualTurn(
+    e: PointerEvent,
+    cubie: THREE.Object3D,
+    swipeDir: THREE.Vector3,
+  ) {
+    const hit = this.pending!;
+    const axis = new THREE.Vector3().crossVectors(hit.normal, swipeDir);
     snapToAxis(axis);
-    const layer = Math.round(hit.cubie.position.getComponent(dominantAxis(axis)));
+    const layer = Math.round(cubie.position.getComponent(dominantAxis(axis)));
 
     this.cube.beginManualTurn(axis, layer);
 
-    // screen-space direction of +localSwipe, for mapping drag distance -> angle
+    // screen-space direction of +swipeDir, for mapping drag distance -> angle
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const worldDir = localSwipe.clone().applyQuaternion(this.cube.group.quaternion);
+    const worldDir = swipeDir.clone().applyQuaternion(this.cube.group.quaternion);
     const p0 = hit.point.clone().project(this.camera);
     const p1 = hit.point.clone().add(worldDir).project(this.camera);
     this.screenDir.set((p1.x - p0.x) * (w / 2), -(p1.y - p0.y) * (h / 2)).normalize();
@@ -295,6 +323,9 @@ export class Controls {
     this.anglePerPixel = Math.PI / 2 / (Math.min(w, h) * TURN_FRACTION);
     this.mode = "manual";
     this.pending = null;
+
+    // haptic confirmation that the layer is now locked
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(15);
   }
 
   private raycast(e: PointerEvent): PendingHit | null {

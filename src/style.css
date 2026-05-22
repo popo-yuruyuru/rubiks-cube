@@ -222,6 +222,61 @@ body {
   border-color: rgba(79, 140, 255, 0.4);
 }
 
+.icon-btn {
+  flex: 0 0 auto;
+  width: 48px;
+  min-height: 56px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.08s ease, opacity 0.15s ease;
+}
+
+.icon-btn:active {
+  transform: scale(0.94);
+  background: rgba(79, 140, 255, 0.22);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* thin edge indicators that fade in when undo/redo is available */
+.edge-hint {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 56px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.edge-hint.left {
+  left: 4px;
+}
+
+.edge-hint.right {
+  right: 4px;
+}
+
+.edge-hint.show {
+  opacity: 0.7;
+}
+
 /* hold-to-confirm reset button */
 .hold-btn {
   position: relative;
