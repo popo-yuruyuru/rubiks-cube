@@ -107,11 +107,33 @@ shuffleBtn.addEventListener("click", () => {
   setMoves(0);
 });
 
-resetBtn.addEventListener("click", () => {
-  cube.reset();
-  setMoves(0);
-  hideStatus();
-});
+// reset requires a 1s hold (progress bar fills) to avoid accidental taps
+const RESET_HOLD_MS = 1000;
+let resetTimer = 0;
+let resetHolding = false;
+
+function startResetHold() {
+  if (resetBtn.disabled || resetHolding) return;
+  resetHolding = true;
+  resetBtn.classList.add("holding");
+  resetTimer = window.setTimeout(() => {
+    cube.reset();
+    setMoves(0);
+    hideStatus();
+    cancelResetHold();
+  }, RESET_HOLD_MS);
+}
+
+function cancelResetHold() {
+  resetHolding = false;
+  clearTimeout(resetTimer);
+  resetBtn.classList.remove("holding");
+}
+
+resetBtn.addEventListener("pointerdown", startResetHold);
+resetBtn.addEventListener("pointerup", cancelResetHold);
+resetBtn.addEventListener("pointerleave", cancelResetHold);
+resetBtn.addEventListener("pointercancel", cancelResetHold);
 
 // ---- render loop ------------------------------------------------------------
 

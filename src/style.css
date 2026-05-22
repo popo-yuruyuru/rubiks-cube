@@ -140,6 +140,44 @@ body {
   border-color: rgba(79, 140, 255, 0.4);
 }
 
+/* hold-to-confirm reset button */
+.hold-btn {
+  position: relative;
+  overflow: hidden;
+  -webkit-touch-callout: none;
+}
+
+.hold-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0%;
+  background: rgba(255, 75, 75, 0.55);
+  pointer-events: none;
+}
+
+.hold-btn.holding .hold-fill {
+  width: 100%;
+  transition: width 1s linear;
+}
+
+.hold-btn:not(.holding) .hold-fill {
+  width: 0%;
+  transition: width 0.18s ease;
+}
+
+.hold-label {
+  position: relative;
+  z-index: 1;
+}
+
+/* defeat the generic :active scale so the hold gesture feels steady */
+.hold-btn:active {
+  transform: none;
+  background: var(--panel);
+}
+
 #tutorial {
   position: fixed;
   inset: 0;
