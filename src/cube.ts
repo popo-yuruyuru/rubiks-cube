@@ -10,26 +10,45 @@ const COLORS = {
   back: 0x0a84ff, // -z  blue
 };
 
+/** Soft glow color per rotation axis — gives the spinning layer an "axis color". */
+const AXIS_GLOW = [0xff6b6b, 0x6bff95, 0x6bb3ff]; // x, y, z
+
 const SPACING = 1.0; // grid step between cubie centers
 const BODY = 0.96; // black plastic body size
 const STICKER = 0.84; // colored sticker size
 const SURFACE = 0.501; // sticker offset from cube center along its axis
+const HALF_PI = Math.PI / 2;
 
-const EASE = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+// EaseOutBack — overshoots slightly then settles, giving turns a satisfying snap.
+const C1 = 1.70158;
+const C3 = C1 + 1;
+const easeOutBack = (t: number) =>
+  1 + C3 * Math.pow(t - 1, 3) + C1 * Math.pow(t - 1, 2);
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export interface TurnRequest {
   axis: THREE.Vector3; // unit local axis (±x/±y/±z)
   layer: number; // grid coord of the layer along |axis|: -1, 0, 1
   turns: number; // signed quarter turns (usually ±1)
-  record: boolean; // counts toward the move counter
+  record: boolean;
   duration?: number;
 }
 
-interface ActiveTurn extends Required<TurnRequest> {
-  start: number;
+interface ActiveTurn {
+  axis: THREE.Vector3;
+  cubies: THREE.Object3D[];
   fromAngle: number;
   toAngle: number;
+  start: number;
+  duration: number;
+  ease: (t: number) => number;
+  recordedMoves: number;
+}
+
+interface ManualTurn {
+  axis: THREE.Vector3;
   cubies: THREE.Object3D[];
+  angle: number;
 }
 
 export class RubiksCube {
@@ -40,13 +59,16 @@ export class RubiksCube {
   private readonly stickers: THREE.Mesh[] = [];
 
   private active: ActiveTurn | null = null;
+  private manual: ManualTurn | null = null;
   private queue: TurnRequest[] = [];
+  private hints = new THREE.Group();
 
-  /** Fired when a turn finishes; `recorded` tells the UI whether to count it. */
-  onTurnComplete: ((recorded: boolean) => void) | null = null;
+  /** Fired when a turn settles; argument is how many moves to count (0 = none). */
+  onTurnComplete: ((recordedMoves: number) => void) | null = null;
 
   constructor() {
     this.group.add(this.pivot);
+    this.group.add(this.hints);
     this.build();
   }
 
@@ -66,17 +88,12 @@ export class RubiksCube {
         for (let z = -1; z <= 1; z++) {
           const cubie = new THREE.Group();
           cubie.position.set(x * SPACING, y * SPACING, z * SPACING);
-
-          const body = new THREE.Mesh(bodyGeo, bodyMat);
-          cubie.add(body);
-
+          cubie.add(new THREE.Mesh(bodyGeo, bodyMat));
           this.addStickers(cubie, stickerGeo, x, y, z);
-
           cubie.userData.home = {
             position: cubie.position.clone(),
             quaternion: cubie.quaternion.clone(),
           };
-
           this.cubies.push(cubie);
           this.group.add(cubie);
         }
@@ -106,12 +123,11 @@ export class RubiksCube {
         color: f.color,
         roughness: 0.45,
         metalness: 0.0,
-        emissive: new THREE.Color(f.color),
+        emissive: new THREE.Color(0xffffff),
         emissiveIntensity: 0,
       });
       const sticker = new THREE.Mesh(geo, mat);
       sticker.position.copy(f.axis).multiplyScalar(SURFACE);
-      // orient plane (default +z normal) to point along the face axis
       sticker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), f.axis);
       sticker.userData.baseColor = f.color;
       sticker.userData.axis = f.axis.clone();
@@ -130,7 +146,10 @@ export class RubiksCube {
     return this.active !== null || this.queue.length > 0;
   }
 
-  /** True when every face shows a single color (orientation-independent). */
+  isManualActive(): boolean {
+    return this.manual !== null;
+  }
+
   isSolved(): boolean {
     const buckets = new Map<string, number>();
     for (const sticker of this.stickers) {
@@ -147,7 +166,85 @@ export class RubiksCube {
     return true;
   }
 
-  // ---- turn control ---------------------------------------------------------
+  // ---- touch feedback (before a swipe commits) ------------------------------
+
+  /** Glow the touched face and show arrows for the two swipe directions. */
+  highlightTouch(touched: THREE.Object3D, normal: THREE.Vector3) {
+    this.clearHighlight();
+    const target = axisKey(normal);
+    for (const sticker of this.stickers) {
+      const cubie = sticker.parent!;
+      const n = (sticker.userData.axis as THREE.Vector3)
+        .clone()
+        .applyQuaternion(cubie.quaternion);
+      if (axisKey(n) === target) this.setStickerGlow(sticker, 0x9ec2ff, 0.22);
+    }
+    this.showHints(touched, normal);
+  }
+
+  private showHints(touched: THREE.Object3D, normal: THREE.Vector3) {
+    this.clearHints();
+    const nAxis = dominantAxis(normal);
+    const base = touched.position.clone().addScaledVector(normal, 0.55);
+    for (let i = 0; i < 3; i++) {
+      if (i === nAxis) continue;
+      for (const sign of [1, -1]) {
+        const dir = new THREE.Vector3();
+        dir.setComponent(i, sign);
+        const arrow = new THREE.ArrowHelper(dir, base, 0.95, AXIS_GLOW[i], 0.34, 0.24);
+        (arrow.line.material as THREE.LineBasicMaterial).transparent = true;
+        (arrow.line.material as THREE.LineBasicMaterial).opacity = 0.85;
+        this.hints.add(arrow);
+      }
+    }
+  }
+
+  clearTouch() {
+    this.clearHighlight();
+    this.clearHints();
+  }
+
+  // ---- manual (finger-following) turn ---------------------------------------
+
+  beginManualTurn(axis: THREE.Vector3, layer: number) {
+    this.clearHints();
+    const a = axis.clone().normalize();
+    const cubies = this.attachLayer(a, layer);
+    this.highlightLayer(cubies, a);
+    this.manual = { axis: a, cubies, angle: 0 };
+  }
+
+  setManualAngle(angle: number) {
+    if (!this.manual) return;
+    const clamped = THREE.MathUtils.clamp(angle, -Math.PI, Math.PI);
+    this.manual.angle = clamped;
+    this.pivot.quaternion.setFromAxisAngle(this.manual.axis, clamped);
+  }
+
+  /** Release: snap to the nearest quarter turn (or back to 0 if under 45°). */
+  endManualTurn() {
+    if (!this.manual) return;
+    const m = this.manual;
+    this.manual = null;
+
+    const quarters = Math.round(m.angle / HALF_PI);
+    const toAngle = quarters * HALF_PI;
+    const remaining = Math.abs(toAngle - m.angle);
+    const duration = THREE.MathUtils.clamp(140 + (remaining / HALF_PI) * 180, 140, 340);
+
+    this.active = {
+      axis: m.axis,
+      cubies: m.cubies,
+      fromAngle: m.angle,
+      toAngle,
+      start: performance.now(),
+      duration,
+      ease: easeOutBack,
+      recordedMoves: Math.abs(quarters),
+    };
+  }
+
+  // ---- queued / programmatic turns ------------------------------------------
 
   enqueue(req: TurnRequest) {
     this.queue.push(req);
@@ -156,55 +253,47 @@ export class RubiksCube {
   reset() {
     this.queue = [];
     this.active = null;
-    this.pivot.rotation.set(0, 0, 0);
+    this.manual = null;
+    this.pivot.quaternion.identity();
     for (const cubie of this.cubies) {
       const home = cubie.userData.home as {
         position: THREE.Vector3;
         quaternion: THREE.Quaternion;
       };
-      this.group.attach(cubie); // ensure detached from pivot
+      this.group.attach(cubie);
       cubie.position.copy(home.position);
       cubie.quaternion.copy(home.quaternion);
       cubie.updateMatrix();
     }
-    this.setLayerHighlight([], 0);
+    this.clearTouch();
   }
 
   update(now: number) {
-    if (!this.active && this.queue.length > 0) this.beginTurn(this.queue.shift()!);
+    if (!this.active && !this.manual && this.queue.length > 0) {
+      this.beginQueuedTurn(this.queue.shift()!);
+    }
     if (!this.active) return;
 
     const a = this.active;
     const t = Math.min(1, (now - a.start) / a.duration);
-    const angle = a.fromAngle + (a.toAngle - a.fromAngle) * EASE(t);
+    const angle = a.fromAngle + (a.toAngle - a.fromAngle) * a.ease(t);
     this.pivot.quaternion.setFromAxisAngle(a.axis, angle);
 
     if (t >= 1) this.finishTurn();
   }
 
-  private beginTurn(req: TurnRequest) {
-    const axisIndex = dominantAxis(req.axis);
-    const cubies = this.cubies.filter(
-      (c) => Math.round(c.position.getComponent(axisIndex)) === req.layer,
-    );
-
-    this.group.updateMatrixWorld(true);
-    this.pivot.quaternion.identity();
-    this.pivot.position.set(0, 0, 0);
-    for (const c of cubies) this.pivot.attach(c);
-
-    this.setLayerHighlight(cubies, 0.4);
-
+  private beginQueuedTurn(req: TurnRequest) {
+    const axis = req.axis.clone().normalize();
+    const cubies = this.attachLayer(axis, req.layer);
     this.active = {
-      axis: req.axis.clone().normalize(),
-      layer: req.layer,
-      turns: req.turns,
-      record: req.record,
-      duration: req.duration ?? 180,
-      start: performance.now(),
-      fromAngle: 0,
-      toAngle: (Math.PI / 2) * req.turns,
+      axis,
       cubies,
+      fromAngle: 0,
+      toAngle: HALF_PI * req.turns,
+      start: performance.now(),
+      duration: req.duration ?? 220,
+      ease: easeInOut,
+      recordedMoves: req.record ? Math.abs(req.turns) : 0,
     };
   }
 
@@ -212,30 +301,59 @@ export class RubiksCube {
     const a = this.active!;
     this.pivot.quaternion.setFromAxisAngle(a.axis, a.toAngle);
     this.group.updateMatrixWorld(true);
-
     for (const c of a.cubies) {
       this.group.attach(c);
       snapToGrid(c);
     }
     this.pivot.quaternion.identity();
-    this.setLayerHighlight([], 0);
-
+    this.clearHighlight();
     this.active = null;
-    this.onTurnComplete?.(a.record);
+    this.onTurnComplete?.(a.recordedMoves);
   }
 
-  private setLayerHighlight(cubies: THREE.Object3D[], intensity: number) {
-    for (const sticker of this.stickers) {
-      (sticker.material as THREE.MeshStandardMaterial).emissiveIntensity = 0;
-    }
+  // ---- internals ------------------------------------------------------------
+
+  private attachLayer(axis: THREE.Vector3, layer: number): THREE.Object3D[] {
+    const i = dominantAxis(axis);
+    const cubies = this.cubies.filter(
+      (c) => Math.round(c.position.getComponent(i)) === layer,
+    );
+    this.group.updateMatrixWorld(true);
+    this.pivot.quaternion.identity();
+    this.pivot.position.set(0, 0, 0);
+    for (const c of cubies) this.pivot.attach(c);
+    return cubies;
+  }
+
+  private highlightLayer(cubies: THREE.Object3D[], axis: THREE.Vector3) {
+    this.clearHighlight();
+    const glow = AXIS_GLOW[dominantAxis(axis)];
     for (const cubie of cubies) {
       cubie.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
-        if (mat && (mesh.userData.baseColor as number | undefined) !== undefined) {
-          mat.emissiveIntensity = intensity;
+        if ((mesh.userData.baseColor as number | undefined) !== undefined) {
+          this.setStickerGlow(mesh, glow, 0.5);
         }
       });
+    }
+  }
+
+  private setStickerGlow(sticker: THREE.Mesh, color: number, intensity: number) {
+    const mat = sticker.material as THREE.MeshStandardMaterial;
+    mat.emissive.setHex(color);
+    mat.emissiveIntensity = intensity;
+  }
+
+  private clearHighlight() {
+    for (const sticker of this.stickers) {
+      (sticker.material as THREE.MeshStandardMaterial).emissiveIntensity = 0;
+    }
+  }
+
+  private clearHints() {
+    for (const child of [...this.hints.children]) {
+      this.hints.remove(child);
+      (child as THREE.ArrowHelper).dispose?.();
     }
   }
 }
@@ -264,7 +382,6 @@ function snapToGrid(cubie: THREE.Object3D) {
     Math.round(cubie.position.y / SPACING) * SPACING,
     Math.round(cubie.position.z / SPACING) * SPACING,
   );
-  // snap each basis vector of the rotation to the nearest axis
   const m = new THREE.Matrix4().makeRotationFromQuaternion(cubie.quaternion);
   const e = m.elements;
   for (let col = 0; col < 3; col++) {

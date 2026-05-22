@@ -139,3 +139,70 @@ body {
 #shuffle {
   border-color: rgba(79, 140, 255, 0.4);
 }
+
+#tutorial {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 9, 14, 0.66);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 10;
+  animation: fade-in 0.25s ease;
+}
+
+#tutorial[hidden] {
+  display: none;
+}
+
+.tut-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 26px 24px 22px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 22px;
+  text-align: left;
+}
+
+.tut-card h2 {
+  margin: 0 0 16px;
+  font-size: 22px;
+  text-align: center;
+}
+
+.tut-card ul {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tut-card li {
+  font-size: 15px;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.tut-card li b {
+  color: var(--accent);
+}
+
+.tut-close {
+  width: 100%;
+  max-width: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

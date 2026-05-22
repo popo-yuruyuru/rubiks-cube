@@ -34,7 +34,6 @@ const cube = new RubiksCube();
 scene.add(cube.group);
 
 const controls = new Controls(canvas, camera, cube);
-void controls;
 
 // ---- responsive fit ---------------------------------------------------------
 
@@ -77,8 +76,8 @@ function hideStatus() {
   statusEl.classList.remove("show");
 }
 
-cube.onTurnComplete = (recorded) => {
-  if (recorded) setMoves(moves + 1);
+cube.onTurnComplete = (recordedMoves) => {
+  if (recordedMoves > 0) setMoves(moves + recordedMoves);
   if (cube.isSolved() && moves > 0) showStatus("完成！", true);
   else hideStatus();
 };
@@ -117,8 +116,9 @@ resetBtn.addEventListener("click", () => {
 // ---- render loop ------------------------------------------------------------
 
 function tick(now: number) {
+  controls.update();
   cube.update(now);
-  const busy = cube.isBusy();
+  const busy = cube.isBusy() || cube.isManualActive();
   shuffleBtn.disabled = busy;
   resetBtn.disabled = busy;
   renderer.render(scene, camera);
@@ -126,3 +126,15 @@ function tick(now: number) {
 }
 
 requestAnimationFrame(tick);
+
+// ---- first-run tutorial -----------------------------------------------------
+
+const tutorial = document.getElementById("tutorial") as HTMLDivElement;
+const tutClose = document.getElementById("tut-close") as HTMLButtonElement;
+const TUT_KEY = "rubiks-tutorial-seen";
+
+if (!localStorage.getItem(TUT_KEY)) tutorial.hidden = false;
+tutClose.addEventListener("click", () => {
+  tutorial.hidden = true;
+  localStorage.setItem(TUT_KEY, "1");
+});
