@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import { RubiksCube, TurnAction } from "./cube";
 import { Controls } from "./controls";
-import { CubeNet } from "./net";
 
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
-const netEl = document.getElementById("net") as HTMLElement;
 const movesEl = document.getElementById("moves") as HTMLSpanElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const shuffleBtn = document.getElementById("shuffle") as HTMLButtonElement;
@@ -41,7 +39,6 @@ const cube = new RubiksCube();
 scene.add(cube.group);
 
 const controls = new Controls(canvas, camera, cube);
-const net = new CubeNet(netEl, cube);
 
 // ---- responsive fit ---------------------------------------------------------
 
@@ -118,7 +115,6 @@ cube.onTurnComplete = (action) => {
       redoStack.push({ ...action, axis: action.axis.clone(), turns: -action.turns, kind: "user" });
     }
   }
-  net.sync();
   refreshHistoryUI();
   if (cube.isSolved() && moves > 0) showStatus("完成！", true);
   else hideStatus();
@@ -195,7 +191,6 @@ function startResetHold() {
     setMoves(0);
     history.length = 0;
     redoStack.length = 0;
-    net.sync();
     refreshHistoryUI();
     hideStatus();
     cancelResetHold();
@@ -245,9 +240,9 @@ let edgeGesture: EdgeGesture | null = null;
 window.addEventListener(
   "pointerdown",
   (e) => {
-    // never steal button or net taps
+    // never steal button taps
     const t = e.target;
-    if (t instanceof HTMLElement && t.closest("button, .net")) return;
+    if (t instanceof HTMLElement && t.closest("button")) return;
     if (e.clientX <= EDGE_WIDTH) edgeGesture = { side: "left", startX: e.clientX, startY: e.clientY, fired: false };
     else if (e.clientX >= window.innerWidth - EDGE_WIDTH)
       edgeGesture = { side: "right", startX: e.clientX, startY: e.clientY, fired: false };
