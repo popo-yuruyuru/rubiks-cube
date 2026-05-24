@@ -25,10 +25,26 @@
 
         <footer id="controls">
           <button class="icon-btn" id="undo" type="button" aria-label="アンドゥ">↶</button>
-          <button class="btn" id="shuffle" type="button">シャッフル</button>
-          <button class="btn hold-btn" id="reset" type="button">
-            <span class="hold-fill" id="reset-fill"></span>
-            <span class="hold-label">長押しでリセット</span>
+          <button class="round-btn hold-btn" id="shuffle" type="button" aria-label="シャッフル">
+            <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="46"></circle>
+            </svg>
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 3h5v5"></path>
+              <path d="M4 20l16.5 -16.5"></path>
+              <path d="M21 16v5h-5"></path>
+              <path d="M15 15l6 6"></path>
+              <path d="M4 4l5 5"></path>
+            </svg>
+          </button>
+          <button class="round-btn hold-btn" id="reset" type="button" aria-label="リセット">
+            <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="46"></circle>
+            </svg>
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9 -9"></path>
+              <path d="M3 4v5h5"></path>
+            </svg>
           </button>
           <button class="icon-btn" id="redo" type="button" aria-label="リドゥ">↷</button>
         </footer>

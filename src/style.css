@@ -145,10 +145,6 @@ body {
   pointer-events: none;
 }
 
-#shuffle {
-  border-color: rgba(79, 140, 255, 0.4);
-}
-
 .icon-btn {
   flex: 0 0 auto;
   width: 48px;
@@ -204,42 +200,79 @@ body {
   opacity: 0.7;
 }
 
-/* hold-to-confirm reset button */
-.hold-btn {
+/* round hold-to-confirm buttons (shuffle / reset) */
+.round-btn {
   position: relative;
-  overflow: hidden;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  touch-action: manipulation;
   -webkit-touch-callout: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+  overflow: visible;
 }
 
-.hold-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 0%;
-  background: rgba(255, 75, 75, 0.55);
+.round-btn:disabled {
+  opacity: 0.4;
   pointer-events: none;
 }
 
-.hold-btn.holding .hold-fill {
-  width: 100%;
-  transition: width 1s linear;
+.round-btn .btn-icon {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.hold-btn:not(.holding) .hold-fill {
-  width: 0%;
-  transition: width 0.18s ease;
+/* circular fill gauge around the button while held */
+.hold-ring {
+  position: absolute;
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  pointer-events: none;
+  transform: rotate(-90deg);
 }
 
-.hold-label {
-  position: relative;
-  z-index: 1;
+.hold-ring circle {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke: var(--ring-color, #5ad17a);
+  /* C = 2*PI*46 ≈ 289 */
+  stroke-dasharray: 289;
+  stroke-dashoffset: 289;
+  transition: stroke-dashoffset 0.18s ease, opacity 0.2s ease;
+  opacity: 0;
 }
 
-/* defeat the generic :active scale so the hold gesture feels steady */
-.hold-btn:active {
-  transform: none;
-  background: var(--panel);
+.round-btn.holding .hold-ring circle {
+  opacity: 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear, opacity 0.05s ease;
+}
+
+#shuffle {
+  --ring-color: #5ad17a;
+  border-color: rgba(90, 209, 122, 0.35);
+}
+
+#reset {
+  --ring-color: #ff5959;
+  border-color: rgba(255, 89, 89, 0.35);
 }
 
 #tutorial {

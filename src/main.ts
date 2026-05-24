@@ -155,7 +155,34 @@ const AXES = [
   new THREE.Vector3(0, 0, 1),
 ];
 
-shuffleBtn.addEventListener("click", () => {
+// shuffle and reset both require a 1s hold (circular gauge fills)
+const HOLD_MS = 1000;
+
+function holdButton(btn: HTMLButtonElement, ms: number, fire: () => void) {
+  let timer = 0;
+  let holding = false;
+  const cancel = () => {
+    holding = false;
+    clearTimeout(timer);
+    btn.classList.remove("holding");
+  };
+  const start = () => {
+    if (btn.disabled || holding) return;
+    holding = true;
+    btn.classList.add("holding");
+    timer = window.setTimeout(() => {
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(25);
+      fire();
+      cancel();
+    }, ms);
+  };
+  btn.addEventListener("pointerdown", start);
+  btn.addEventListener("pointerup", cancel);
+  btn.addEventListener("pointerleave", cancel);
+  btn.addEventListener("pointercancel", cancel);
+}
+
+holdButton(shuffleBtn, HOLD_MS, () => {
   if (busyForUser()) return;
   hideStatus();
   history.length = 0;
@@ -177,36 +204,14 @@ shuffleBtn.addEventListener("click", () => {
   refreshHistoryUI();
 });
 
-// reset requires a 1s hold (progress bar fills) to avoid accidental taps
-const RESET_HOLD_MS = 1000;
-let resetTimer = 0;
-let resetHolding = false;
-
-function startResetHold() {
-  if (resetBtn.disabled || resetHolding) return;
-  resetHolding = true;
-  resetBtn.classList.add("holding");
-  resetTimer = window.setTimeout(() => {
-    cube.reset();
-    setMoves(0);
-    history.length = 0;
-    redoStack.length = 0;
-    refreshHistoryUI();
-    hideStatus();
-    cancelResetHold();
-  }, RESET_HOLD_MS);
-}
-
-function cancelResetHold() {
-  resetHolding = false;
-  clearTimeout(resetTimer);
-  resetBtn.classList.remove("holding");
-}
-
-resetBtn.addEventListener("pointerdown", startResetHold);
-resetBtn.addEventListener("pointerup", cancelResetHold);
-resetBtn.addEventListener("pointerleave", cancelResetHold);
-resetBtn.addEventListener("pointercancel", cancelResetHold);
+holdButton(resetBtn, HOLD_MS, () => {
+  cube.reset();
+  setMoves(0);
+  history.length = 0;
+  redoStack.length = 0;
+  refreshHistoryUI();
+  hideStatus();
+});
 
 // ---- render loop ------------------------------------------------------------
 
